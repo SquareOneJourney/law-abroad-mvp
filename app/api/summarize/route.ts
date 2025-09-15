@@ -16,7 +16,7 @@ export async function POST(req: Request) {
 
     // 1. Fetch law text from Supabase
     const { data: law, error } = await supabase
-      .from("laws")
+      .from("country_laws")
       .select("raw_text")
       .eq("id", id)
       .single();
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
 
     // 3. Update Supabase with the summary
     await supabase
-      .from("laws")
+      .from("country_laws")
       .update({ summary })
       .eq("id", id);
 

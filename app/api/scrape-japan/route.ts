@@ -26,7 +26,7 @@ export async function POST() {
 
     // 3. Upsert into Supabase
     const { data, error } = await supabase
-      .from("laws")
+      .from("country_laws")
       .upsert(
         {
           country_code: "JP",

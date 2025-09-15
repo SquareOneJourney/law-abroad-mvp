@@ -47,7 +47,7 @@ export async function POST() {
       .slice(0, 2000);
 
     const { data: jpResult, error: jpError } = await supabase
-      .from("laws")
+      .from("country_laws")
       .upsert(
         {
           country_code: "JP",
@@ -90,7 +90,7 @@ export async function POST() {
       .slice(0, 2000);
 
     const { data: aeResult, error: aeError } = await supabase
-      .from("laws")
+      .from("country_laws")
       .upsert(
         {
           country_code: "AE",
@@ -129,7 +129,7 @@ export async function POST() {
     );
 
     const { data: deResult, error: deError } = await supabase
-      .from("laws")
+      .from("country_laws")
       .upsert(
         {
           country_code: "DE",

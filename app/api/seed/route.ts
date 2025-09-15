@@ -6,7 +6,7 @@ export async function POST() {
   try {
     // Insert sample laws
     const { data: result, error } = await supabase
-      .from("laws")
+      .from("country_laws")
       .insert([
         {
           id: crypto.randomUUID(),
