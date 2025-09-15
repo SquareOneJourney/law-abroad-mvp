@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     }
 
     const { data: laws, error } = await supabase
-      .from("laws")
+      .from("country_laws")
       .select(
         `
         id,
@@ -109,7 +109,7 @@ export async function GET(request: Request) {
     const region = searchParams.get("region");
 
     let supabaseQuery = supabase
-      .from("laws")
+      .from("country_laws")
       .select(
         `
         id,

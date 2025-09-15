@@ -18,7 +18,7 @@ export async function GET() {
   try {
     // Get unique categories
     const { data: categories, error: catError } = await supabase
-      .from("laws")
+      .from("country_laws")
       .select("category")
       .not("category", "is", null);
 
@@ -26,7 +26,7 @@ export async function GET() {
 
     // Get unique severities
     const { data: severities, error: sevError } = await supabase
-      .from("laws")
+      .from("country_laws")
       .select("severity")
       .not("severity", "is", null);
 
@@ -34,7 +34,7 @@ export async function GET() {
 
     // Get unique regions
     const { data: regions, error: regError } = await supabase
-      .from("laws")
+      .from("country_laws")
       .select("region")
       .not("region", "is", null);
 
@@ -42,7 +42,7 @@ export async function GET() {
 
     // Get countries with names
     const { data: countries, error: countryError } = await supabase
-      .from("laws")
+      .from("country_laws")
       .select("country_code, countries ( name )");
 
     if (countryError) throw countryError;
