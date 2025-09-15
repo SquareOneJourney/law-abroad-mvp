@@ -1,10 +1,7 @@
-/* eslint-disable @tailwindcss/no-custom-classname */
-/* tailwindcss v3 */
+/* Tailwind base styles */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import "tw-animate-css";
 
 :root {
   --background: #ffffff;

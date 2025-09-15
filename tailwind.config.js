@@ -1,5 +1,5 @@
-// tailwind.config.js
 const { fontFamily } = require("tailwindcss/defaultTheme")
+const twAnimate = require("tw-animate-css") // <-- add this at the top
 
 module.exports = {
   darkMode: ["class"],
@@ -55,5 +55,6 @@ module.exports = {
       },
     },
   },
-  plugins: [],
+  plugins: [twAnimate], // <-- put it here
 }
+
