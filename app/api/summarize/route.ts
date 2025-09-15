@@ -1,47 +1,66 @@
-import OpenAI from "openai"
-import { sql } from "@/lib/db"
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/db";
+import OpenAI from "openai";
 
-const client = new OpenAI({
+const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-})
+});
 
 export async function POST(req: Request) {
   try {
-    const { id } = await req.json()
+    const { id } = await req.json();
 
-    const laws = await sql`
-      SELECT raw_text FROM country_laws WHERE id = ${id};
-    `
-
-    if (laws.length === 0) {
-      return new Response(JSON.stringify({ error: "Law not found" }), { status: 404 })
+    if (!id) {
+      return NextResponse.json({ error: "Missing law ID" }, { status: 400 });
     }
 
-    const rawText = laws[0].raw_text
+    // 1. Fetch law text from Supabase
+    const { data: law, error } = await supabase
+      .from("laws")
+      .select("raw_text")
+      .eq("id", id)
+      .single();
 
-    const completion = await client.chat.completions.create({
+    if (error || !law) {
+      console.error("Law fetch error:", error);
+      return NextResponse.json(
+        { error: "Law not found" },
+        { status: 404 }
+      );
+    }
+
+    // 2. Ask OpenAI to summarize
+    const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content:
-            "You are a helpful assistant that summarizes official law text into clear, traveler-friendly language.",
+          content: "You are a legal assistant. Summarize the law clearly in one sentence for travelers.",
         },
-        { role: "user", content: rawText },
+        {
+          role: "user",
+          content: law.raw_text,
+        },
       ],
-    })
+      max_tokens: 150,
+    });
 
-    const summary = completion.choices[0].message?.content || "No summary available"
+    const summary =
+      completion.choices[0]?.message?.content?.trim() ||
+      "No summary generated.";
 
-    await sql`
-      UPDATE country_laws
-      SET summary = ${summary}, updated_at = now()
-      WHERE id = ${id};
-    `
+    // 3. Update Supabase with the summary
+    await supabase
+      .from("laws")
+      .update({ summary })
+      .eq("id", id);
 
-    return new Response(JSON.stringify({ id, summary }), { status: 200 })
-  } catch (err: any) {
-    console.error("Error in summarize:", err)
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 })
+    return NextResponse.json({ id, summary });
+  } catch (err) {
+    console.error("Summarize error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      { status: 500 }
+    );
   }
 }

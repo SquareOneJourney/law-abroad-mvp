@@ -1,53 +1,35 @@
-import { sql } from "@/lib/db"
-import { NextResponse } from "next/server"
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/db";
 
-export async function GET(request: Request, { params }: { params: { countryCode: string } }) {
+export async function GET(
+  req: Request,
+  { params }: { params: { countryCode: string } }
+) {
   try {
-    const { countryCode } = params
+    const { countryCode } = params;
 
-    const contacts = await sql`
-      SELECT 
-        ec.id,
-        ec.contact_type,
-        ec.name,
-        ec.phone,
-        ec.address,
-        ec.email,
-        ec.website,
-        c.name as country_name
-      FROM emergency_contacts ec
-      JOIN countries c ON ec.country_id = c.id
-      WHERE c.code = ${countryCode.toUpperCase()}
-      ORDER BY 
-        CASE ec.contact_type 
-          WHEN 'police' THEN 1
-          WHEN 'medical' THEN 2
-          WHEN 'embassy' THEN 3
-          WHEN 'tourist_police' THEN 4
-          ELSE 5
-        END,
-        ec.name ASC
-    `
+    // 1. Get country id by code
+    const { data: country, error: countryError } = await supabase
+      .from("countries")
+      .select("id")
+      .eq("code", countryCode.toUpperCase())
+      .single();
 
-    if (contacts.length === 0) {
-      return NextResponse.json({ error: "Country not found or no emergency contacts available" }, { status: 404 })
+    if (countryError || !country) {
+      return NextResponse.json({ error: "Country not found" }, { status: 404 });
     }
 
-    return NextResponse.json({
-      country: contacts[0].country_name,
-      countryCode: countryCode.toUpperCase(),
-      contacts: contacts.map((contact) => ({
-        id: contact.id,
-        type: contact.contact_type,
-        name: contact.name,
-        phone: contact.phone,
-        address: contact.address,
-        email: contact.email,
-        website: contact.website,
-      })),
-    })
-  } catch (error) {
-    console.error("Error fetching emergency contacts:", error)
-    return NextResponse.json({ error: "Failed to fetch emergency contacts" }, { status: 500 })
+    // 2. Get emergency contacts for that country
+    const { data: contacts, error: contactsError } = await supabase
+      .from("emergency_contacts")
+      .select("id, service, phone")
+      .eq("country_id", country.id);
+
+    if (contactsError) throw contactsError;
+
+    return NextResponse.json(contacts || []);
+  } catch (err) {
+    console.error("Error fetching emergency contacts:", err);
+    return NextResponse.json({ error: "Failed to fetch emergency contacts" }, { status: 500 });
   }
 }

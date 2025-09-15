@@ -1,39 +1,35 @@
-// app/api/laws/countrycodes/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db";
 
-export async function GET() {
+export async function GET(
+  req: Request,
+  { params }: { params: { countryCode: string } }
+) {
   try {
-    const { data, error } = await supabase
+    const { countryCode } = params;
+
+    // Get country ID
+    const { data: country, error: countryError } = await supabase
       .from("countries")
-      .select("id, name, code");
+      .select("id")
+      .eq("code", countryCode.toUpperCase())
+      .single();
 
-    if (error) throw error;
+    if (countryError || !country) {
+      return NextResponse.json({ error: "Country not found" }, { status: 404 });
+    }
 
-    // Optionally join with country_laws to count laws
-    const { data: laws, error: lawError } = await supabase
+    // Fetch laws + category
+    const { data: laws, error: lawsError } = await supabase
       .from("country_laws")
-      .select("country_id");
+      .select("id, summary, severity, details, law_categories(name)")
+      .eq("country_id", country.id);
 
-    if (lawError) throw lawError;
+    if (lawsError) throw lawsError;
 
-    // Count laws per country
-    const lawCounts: Record<number, number> = {};
-    (laws || []).forEach((law) => {
-      lawCounts[law.country_id] = (lawCounts[law.country_id] || 0) + 1;
-    });
-
-    const enriched = (data || []).map((c) => ({
-      ...c,
-      law_count: lawCounts[c.id] || 0,
-    }));
-
-    return NextResponse.json(enriched);
-  } catch (err: any) {
-    console.error("Error fetching country codes:", err.message || err);
-    return NextResponse.json(
-      { error: err.message || "Failed to load countries" },
-      { status: 500 }
-    );
+    return NextResponse.json(laws || []);
+  } catch (err) {
+    console.error("Error fetching country laws:", err);
+    return NextResponse.json({ error: "Failed to fetch country laws" }, { status: 500 });
   }
 }

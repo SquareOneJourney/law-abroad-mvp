@@ -1,51 +1,84 @@
-import { sql } from "@/lib/db"
-import { NextResponse } from "next/server"
+// app/api/countries/[countryCode]/laws/route.ts
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/db";
 
-export async function GET(request: Request, { params }: { params: { countryCode: string } }) {
+export async function GET(
+  request: Request,
+  { params }: { params: { countryCode: string } }
+) {
   try {
-    const { countryCode } = params
+    const { countryCode } = params;
 
-    const laws = await sql`
-      SELECT 
-        cl.id,
-        cl.summary,
-        cl.severity,
-        cl.details,
-        lc.name as category_name,
-        lc.description as category_description,
-        c.name as country_name
-      FROM country_laws cl
-      JOIN countries c ON cl.country_id = c.id
-      JOIN law_categories lc ON cl.category_id = lc.id
-      WHERE c.code = ${countryCode.toUpperCase()}
-      ORDER BY 
-        CASE cl.severity 
-          WHEN 'critical' THEN 1
-          WHEN 'high' THEN 2
-          WHEN 'medium' THEN 3
-          WHEN 'low' THEN 4
-        END,
-        lc.name ASC
-    `
+    // 1. Get the country
+    const { data: country, error: countryError } = await supabase
+      .from("countries")
+      .select("id, name, code")
+      .eq("code", countryCode.toUpperCase())
+      .single();
 
-    if (laws.length === 0) {
-      return NextResponse.json({ error: "Country not found or no laws available" }, { status: 404 })
+    if (countryError || !country) {
+      return NextResponse.json(
+        { error: "Country not found" },
+        { status: 404 }
+      );
     }
 
+    // 2. Get laws for that country, with category info
+    const { data: laws, error: lawsError } = await supabase
+      .from("country_laws")
+      .select(
+        `
+        id,
+        summary,
+        severity,
+        details,
+        law_categories (
+          name,
+          description
+        )
+      `
+      )
+      .eq("country_id", country.id);
+
+    if (lawsError) {
+      throw lawsError;
+    }
+
+    if (!laws || laws.length === 0) {
+      return NextResponse.json(
+        { error: "No laws available for this country" },
+        { status: 404 }
+      );
+    }
+
+    // 3. Shape into frontend format
     return NextResponse.json({
-      country: laws[0].country_name,
-      countryCode: countryCode.toUpperCase(),
-      laws: laws.map((law) => ({
-        id: law.id,
-        category: law.category_name,
-        categoryDescription: law.category_description,
-        summary: law.summary,
-        severity: law.severity,
-        details: law.details,
-      })),
-    })
+      country: country.name,
+      countryCode: country.code,
+      laws: laws.map((law) => {
+        let category: { name?: string; description?: string } | null = null;
+
+        if (Array.isArray(law.law_categories)) {
+          category = law.law_categories[0] || null;
+        } else if (law.law_categories) {
+          category = law.law_categories;
+        }
+
+        return {
+          id: law.id,
+          category: category?.name || "General",
+          categoryDescription: category?.description || "",
+          summary: law.summary,
+          severity: law.severity,
+          details: law.details,
+        };
+      }),
+    });
   } catch (error) {
-    console.error("Error fetching country laws:", error)
-    return NextResponse.json({ error: "Failed to fetch country laws" }, { status: 500 })
+    console.error("Error fetching country laws:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch country laws" },
+      { status: 500 }
+    );
   }
 }

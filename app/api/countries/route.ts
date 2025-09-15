@@ -1,23 +1,35 @@
-import { NextResponse } from "next/server"
-import { neon } from "@neondatabase/serverless"
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/db";
 
-const sql = neon(process.env.DATABASE_URL!)
-
-export async function GET() {
+export async function GET(
+  req: Request,
+  { params }: { params: { countryCode: string } }
+) {
   try {
-    const rows = await sql`
-      SELECT 
-        country_code, 
-        MAX(country_name) as country_name,
-        COUNT(*)::int as law_count
-      FROM laws
-      GROUP BY country_code
-      ORDER BY country_name;
-    `
+    const { countryCode } = params;
 
-    return NextResponse.json(rows)
+    // Get country ID
+    const { data: country, error: countryError } = await supabase
+      .from("countries")
+      .select("id")
+      .eq("code", countryCode.toUpperCase())
+      .single();
+
+    if (countryError || !country) {
+      return NextResponse.json({ error: "Country not found" }, { status: 404 });
+    }
+
+    // Fetch emergency contacts
+    const { data: contacts, error: contactsError } = await supabase
+      .from("emergency_contacts")
+      .select("id, service, phone")
+      .eq("country_id", country.id);
+
+    if (contactsError) throw contactsError;
+
+    return NextResponse.json(contacts || []);
   } catch (err) {
-    console.error("Error in /api/countries:", err)
-    return NextResponse.json({ error: "Failed to fetch countries" }, { status: 500 })
+    console.error("Error fetching emergency contacts:", err);
+    return NextResponse.json({ error: "Failed to fetch emergency contacts" }, { status: 500 });
   }
 }

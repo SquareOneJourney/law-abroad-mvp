@@ -1,129 +1,157 @@
-import { sql } from "@/lib/db"
-import { NextResponse } from "next/server"
+// app/api/search/route.ts
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/db";
 
+type LawRecord = {
+  id: string;
+  title: string;
+  summary: string;
+  severity: "critical" | "high" | "medium" | "low";
+  raw_text: string | null;
+  category: string;
+  country_code: string;
+  region?: string | null;
+  source_name?: string | null;
+  source_url?: string | null;
+  last_verified?: string | null;
+  countries?: { name: string }[]; // 👈 array, not object
+};
+
+// 🔎 Country-specific keyword-based search
 export async function POST(request: Request) {
   try {
-    const { query, countryCode } = await request.json()
+    const { query, countryCode } = await request.json();
 
     if (!query || !countryCode) {
-      return NextResponse.json({ error: "Query and country code are required" }, { status: 400 })
+      return NextResponse.json(
+        { error: "Query and country code are required" },
+        { status: 400 }
+      );
     }
 
-    // Simple keyword-based search in law summaries and details
-    const searchResults = await sql`
-      SELECT 
-        cl.id,
-        cl.summary,
-        cl.severity,
-        cl.details,
-        lc.name as category_name,
-        c.name as country_name,
-        c.code as country_code
-      FROM country_laws cl
-      JOIN countries c ON cl.country_id = c.id
-      JOIN law_categories lc ON cl.category_id = lc.id
-      WHERE c.code = ${countryCode.toUpperCase()}
-      AND (
-        cl.summary ILIKE ${`%${query}%`} OR
-        cl.details ILIKE ${`%${query}%`} OR
-        lc.name ILIKE ${`%${query}%`}
+    const { data: laws, error } = await supabase
+      .from("laws")
+      .select(
+        `
+        id,
+        title,
+        summary,
+        severity,
+        raw_text,
+        category,
+        country_code,
+        countries ( name )
+      `
       )
-      ORDER BY 
-        CASE cl.severity 
-          WHEN 'critical' THEN 1
-          WHEN 'high' THEN 2
-          WHEN 'medium' THEN 3
-          WHEN 'low' THEN 4
-        END
-      LIMIT 5
-    `
+      .eq("country_code", countryCode.toUpperCase())
+      .or(
+        `summary.ilike.%${query}%,raw_text.ilike.%${query}%,category.ilike.%${query}%`
+      )
+      .order("severity", { ascending: true })
+      .limit(5);
 
-    // Generate a simple YES/NO answer based on severity
-    let answer = "UNCLEAR"
-    let explanation = "No specific information found for your query."
+    if (error) throw error;
 
-    if (searchResults.length > 0) {
-      const highestSeverity = searchResults[0].severity
+    const typedLaws = (laws || []) as LawRecord[];
+
+    let answer = "UNCLEAR";
+    let explanation = "No specific information found for your query.";
+
+    if (typedLaws.length > 0) {
+      const highestSeverity = typedLaws[0].severity;
+      const countryName =
+        typedLaws[0].countries?.[0]?.name || countryCode.toUpperCase();
 
       if (highestSeverity === "critical" || highestSeverity === "high") {
-        answer = "NO - HIGH RISK"
-        explanation = `This activity may be illegal or highly restricted in ${searchResults[0].country_name}. ${searchResults[0].summary}`
+        answer = "NO - HIGH RISK";
+        explanation = `This activity may be illegal or highly restricted in ${countryName}. ${typedLaws[0].summary}`;
       } else if (highestSeverity === "medium") {
-        answer = "CAUTION REQUIRED"
-        explanation = `This activity has restrictions in ${searchResults[0].country_name}. ${searchResults[0].summary}`
+        answer = "CAUTION REQUIRED";
+        explanation = `This activity has restrictions in ${countryName}. ${typedLaws[0].summary}`;
       } else {
-        answer = "GENERALLY ALLOWED"
-        explanation = `This activity appears to be allowed with normal precautions in ${searchResults[0].country_name}. ${searchResults[0].summary}`
+        answer = "GENERALLY ALLOWED";
+        explanation = `This activity appears to be allowed with normal precautions in ${countryName}. ${typedLaws[0].summary}`;
       }
     }
 
     return NextResponse.json({
       query,
-      country: searchResults[0]?.country_name || "Unknown",
+      country: typedLaws[0]?.countries?.[0]?.name || "Unknown",
       countryCode: countryCode.toUpperCase(),
       answer,
       explanation,
-      relatedLaws: searchResults.map((law) => ({
+      relatedLaws: typedLaws.map((law) => ({
         id: law.id,
-        category: law.category_name,
+        title: law.title,
+        category: law.category,
         summary: law.summary,
         severity: law.severity,
-        details: law.details,
+        details: law.raw_text,
       })),
-    })
+    });
   } catch (error) {
-    console.error("Error processing search:", error)
-    return NextResponse.json({ error: "Failed to process search query" }, { status: 500 })
+    console.error("Error processing search:", error);
+    return NextResponse.json(
+      { error: "Failed to process search query" },
+      { status: 500 }
+    );
   }
 }
 
+// 🌍 Global search with filters
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url)
-    const query = searchParams.get("q") || ""
-    const country = searchParams.get("country")
-    const category = searchParams.get("category")
-    const severity = searchParams.get("severity")
-    const region = searchParams.get("region")
+    const { searchParams } = new URL(request.url);
+    const query = searchParams.get("q") || "";
+    const country = searchParams.get("country");
+    const category = searchParams.get("category");
+    const severity = searchParams.get("severity");
+    const region = searchParams.get("region");
 
-    const searchResults = await sql`
-      SELECT 
-        l.id,
-        l.title,
-        l.category,
-        l.summary,
-        l.severity,
-        l.raw_text,
-        l.source_name,
-        l.source_url,
-        l.last_verified,
-        l.country_code,
-        l.region,
-        c.name as country_name
-      FROM laws l
-      JOIN countries c ON l.country_code = c.code
-      WHERE 
-        (${country}::text IS NULL OR l.country_code = ${country})
-        AND (${category}::text IS NULL OR l.category = ${category})
-        AND (${severity}::text IS NULL OR l.severity = ${severity})
-        AND (${region}::text IS NULL OR ${region} = 'all' OR l.region = ${region})
-        AND (
-          ${query} = '' OR
-          l.country_code ILIKE ${`%${query}%`} OR
-          l.category ILIKE ${`%${query}%`} OR
-          l.title ILIKE ${`%${query}%`} OR
-          l.summary ILIKE ${`%${query}%`} OR
-          l.raw_text ILIKE ${`%${query}%`} OR
-          l.region ILIKE ${`%${query}%`}
-        )
-      ORDER BY l.last_verified DESC
-      LIMIT 50
-    `
+    let supabaseQuery = supabase
+      .from("laws")
+      .select(
+        `
+        id,
+        title,
+        category,
+        summary,
+        severity,
+        raw_text,
+        source_name,
+        source_url,
+        last_verified,
+        country_code,
+        region,
+        countries ( name )
+      `
+      )
+      .limit(50);
+
+    if (country) supabaseQuery = supabaseQuery.eq("country_code", country);
+    if (category) supabaseQuery = supabaseQuery.eq("category", category);
+    if (severity) supabaseQuery = supabaseQuery.eq("severity", severity);
+    if (region && region !== "all")
+      supabaseQuery = supabaseQuery.eq("region", region);
+
+    if (query) {
+      supabaseQuery = supabaseQuery.or(
+        `country_code.ilike.%${query}%,category.ilike.%${query}%,title.ilike.%${query}%,summary.ilike.%${query}%,raw_text.ilike.%${query}%,region.ilike.%${query}%`
+      );
+    }
+
+    const { data: laws, error } = await supabaseQuery.order("last_verified", {
+      ascending: false,
+    });
+
+    if (error) throw error;
+
+    const typedLaws = (laws || []) as LawRecord[];
 
     return NextResponse.json({
       query,
       filters: { country, category, severity, region },
-      results: searchResults.map((law) => ({
+      results: typedLaws.map((law) => ({
         id: law.id,
         title: law.title,
         category: law.category,
@@ -135,12 +163,15 @@ export async function GET(request: Request) {
         source_url: law.source_url,
         last_verified: law.last_verified,
         country_code: law.country_code,
-        country_name: law.country_name,
+        country_name: law.countries?.[0]?.name || "Unknown", // 👈 array safe access
       })),
-      total: searchResults.length,
-    })
+      total: typedLaws.length,
+    });
   } catch (error) {
-    console.error("Error processing global search:", error)
-    return NextResponse.json({ error: "Failed to process search query" }, { status: 500 })
+    console.error("Error processing global search:", error);
+    return NextResponse.json(
+      { error: "Failed to process search query" },
+      { status: 500 }
+    );
   }
 }
